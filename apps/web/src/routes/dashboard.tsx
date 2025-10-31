@@ -6,29 +6,28 @@ import { createFileRoute, redirect } from "@tanstack/react-router";
 import {
   Card,
   CardContent,
+  CardDescription,
   CardHeader,
   CardTitle,
-  CardDescription,
 } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { useForm } from "@tanstack/react-form";
-import { z } from "zod";
 import { Checkbox } from "@/components/ui/checkbox";
 import { toast } from "sonner";
 import {
-  Trash2,
-  Search,
-  Plus,
+  AlertCircle,
+  Calendar,
   CheckCircle2,
   Circle,
-  AlertCircle,
   Clock,
-  TrendingUp,
   Edit2,
+  Plus,
+  Search,
+  TrendingUp,
+  Trash2,
   X,
-  Calendar,
 } from "lucide-react";
 import { Badge } from "@/components/ui/badge";
 import { Skeleton } from "@/components/ui/skeleton";
@@ -84,7 +83,6 @@ export const Route = createFileRoute("/dashboard")({
 function RouteComponent() {
   const { session } = Route.useRouteContext();
 
-  // State for filters and sorting
   const [completed, setCompleted] = useState<boolean | undefined>(undefined);
   const [priority, setPriority] = useState<Priority | undefined>(undefined);
   const [sortBy, setSortBy] = useState<SortBy>("createdAt");
@@ -93,40 +91,35 @@ function RouteComponent() {
   const [debouncedSearch, setDebouncedSearch] = useState("");
   const [editingTodo, setEditingTodo] = useState<string | null>(null);
 
-  // Debounce search
   useEffect(() => {
-    const timerId = setTimeout(() => {
-      setDebouncedSearch(searchTerm);
-    }, 300);
+    const timerId = setTimeout(() => setDebouncedSearch(searchTerm), 300);
     return () => clearTimeout(timerId);
   }, [searchTerm]);
 
-  // Queries
-  const { data: todos, isLoading: todosLoading } = useQuery(
-    orpc.todos.getTodos.queryOptions({
-      input: {
-        completed,
-        priority,
-        sortBy,
-        sortOrder,
-        search: debouncedSearch || undefined,
-      },
-    })
-  );
-
-  const { data: stats } = useQuery(orpc.todos.getStats.queryOptions());
-
-  // Mutations with proper invalidation
-  const invalidateTodos = () => {
-    queryClient.invalidateQueries({ queryKey: ["todos", "getTodos"] });
-    queryClient.invalidateQueries({ queryKey: ["todos", "getStats"] });
+  const queryInput = {
+    completed,
+    priority,
+    sortBy,
+    sortOrder,
+    search: debouncedSearch || undefined,
   };
 
+  // ✅ FIX 1: Capture the entire query object, not just its properties.
+  // This gives us access to the `.refetch()` method.
+  const todosQuery = useQuery(
+    orpc.todos.getTodos.queryOptions({ input: queryInput })
+  );
+
+  const statsQuery = useQuery(orpc.todos.getStats.queryOptions());
+
+  // ✅ FIX 2: Use `todosQuery.refetch()` in `onSuccess` for immediate updates.
+  // This is the pattern from your working example.
   const { mutate: createTodo, isPending: isCreating } = useMutation({
     ...orpc.todos.createTodo.mutationOptions(),
     onSuccess: () => {
       toast.success("Todo created successfully!");
-      invalidateTodos();
+      todosQuery.refetch(); // Refetch the list
+      statsQuery.refetch(); // Refetch stats
       form.reset();
     },
     onError: (err) => toast.error(err.message || "Failed to create todo"),
@@ -136,7 +129,8 @@ function RouteComponent() {
     ...orpc.todos.updateTodo.mutationOptions(),
     onSuccess: () => {
       toast.success("Todo updated!");
-      invalidateTodos();
+      todosQuery.refetch();
+      statsQuery.refetch();
       setEditingTodo(null);
     },
     onError: (err) => toast.error(err.message || "Failed to update todo"),
@@ -146,12 +140,12 @@ function RouteComponent() {
     ...orpc.todos.deleteTodo.mutationOptions(),
     onSuccess: () => {
       toast.success("Todo deleted");
-      invalidateTodos();
+      todosQuery.refetch();
+      statsQuery.refetch();
     },
     onError: (err) => toast.error(err.message || "Failed to delete todo"),
   });
 
-  // Form for creating todos
   const form = useForm({
     defaultValues: {
       title: "",
@@ -173,7 +167,6 @@ function RouteComponent() {
     },
   });
 
-  // Helper functions
   const formatDueDate = (date: Date | null) => {
     if (!date) return null;
     const d = new Date(date);
@@ -189,11 +182,10 @@ function RouteComponent() {
     return { text: d.toLocaleDateString(), color: "text-muted-foreground" };
   };
 
-  const formatCreatedDate = (date: Date) => {
-    const d = new Date(date);
-    return d.toLocaleDateString() + " " + d.toLocaleTimeString();
-  };
-
+  const formatCreatedDate = (date: Date) =>
+    new Date(date).toLocaleDateString() +
+    " " +
+    new Date(date).toLocaleTimeString();
   const clearFilters = () => {
     setCompleted(undefined);
     setPriority(undefined);
@@ -207,78 +199,71 @@ function RouteComponent() {
 
   return (
     <div className="container mx-auto p-4 max-w-7xl">
-      {/* Header */}
       <div className="mb-6">
         <h1 className="text-3xl font-bold mb-2">My Todos</h1>
         <p className="text-muted-foreground">
           Welcome back, {session.data?.user.name}!
         </p>
       </div>
-
-      {/* Statistics Cards */}
-      {stats && (
+      {statsQuery.data && (
         <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-5 gap-4 mb-6">
           <Card className="border-l-4 border-l-primary">
             <CardContent className="pt-6">
               <div className="flex items-center justify-between">
                 <div>
                   <p className="text-sm text-muted-foreground">Total</p>
-                  <p className="text-2xl font-bold">{stats.total}</p>
+                  <p className="text-2xl font-bold">{statsQuery.data.total}</p>
                 </div>
                 <Circle className="h-8 w-8 text-muted-foreground" />
               </div>
             </CardContent>
           </Card>
-
           <Card className="border-l-4 border-l-green-500">
             <CardContent className="pt-6">
               <div className="flex items-center justify-between">
                 <div>
                   <p className="text-sm text-muted-foreground">Completed</p>
                   <p className="text-2xl font-bold text-green-600">
-                    {stats.completed}
+                    {statsQuery.data.completed}
                   </p>
                 </div>
                 <CheckCircle2 className="h-8 w-8 text-green-600" />
               </div>
             </CardContent>
           </Card>
-
           <Card className="border-l-4 border-l-blue-500">
             <CardContent className="pt-6">
               <div className="flex items-center justify-between">
                 <div>
                   <p className="text-sm text-muted-foreground">Pending</p>
                   <p className="text-2xl font-bold text-blue-600">
-                    {stats.pending}
+                    {statsQuery.data.pending}
                   </p>
                 </div>
                 <Clock className="h-8 w-8 text-blue-600" />
               </div>
             </CardContent>
           </Card>
-
           <Card className="border-l-4 border-l-red-500">
             <CardContent className="pt-6">
               <div className="flex items-center justify-between">
                 <div>
                   <p className="text-sm text-muted-foreground">Overdue</p>
                   <p className="text-2xl font-bold text-red-600">
-                    {stats.overdue}
+                    {statsQuery.data.overdue}
                   </p>
                 </div>
                 <AlertCircle className="h-8 w-8 text-red-600" />
               </div>
             </CardContent>
           </Card>
-
           <Card className="border-l-4 border-l-purple-500">
             <CardContent className="pt-6">
               <div className="flex items-center justify-between">
                 <div>
                   <p className="text-sm text-muted-foreground">Completion</p>
                   <p className="text-2xl font-bold text-purple-600">
-                    {stats.completionRate}%
+                    {statsQuery.data.completionRate}%
                   </p>
                 </div>
                 <TrendingUp className="h-8 w-8 text-purple-600" />
@@ -287,8 +272,6 @@ function RouteComponent() {
           </Card>
         </div>
       )}
-
-      {/* Main Card */}
       <Card>
         <CardHeader>
           <CardTitle>Todo List</CardTitle>
@@ -297,7 +280,6 @@ function RouteComponent() {
           </CardDescription>
         </CardHeader>
         <CardContent className="space-y-6">
-          {/* Filters */}
           <div className="space-y-4">
             <div className="flex items-center justify-between">
               <h3 className="text-sm font-medium">Filters</h3>
@@ -312,7 +294,6 @@ function RouteComponent() {
                 </Button>
               )}
             </div>
-
             <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-5 gap-3">
               <div className="relative">
                 <Search className="absolute left-3 top-1/2 -translate-y-1/2 h-4 w-4 text-muted-foreground" />
@@ -323,7 +304,6 @@ function RouteComponent() {
                   onChange={(e) => setSearchTerm(e.target.value)}
                 />
               </div>
-
               <Select
                 value={completed?.toString() ?? "all"}
                 onValueChange={(val) =>
@@ -339,7 +319,6 @@ function RouteComponent() {
                   <SelectItem value="true">Completed</SelectItem>
                 </SelectContent>
               </Select>
-
               <Select
                 value={priority ?? "all"}
                 onValueChange={(val: Priority | "all") =>
@@ -357,7 +336,6 @@ function RouteComponent() {
                   <SelectItem value="urgent">Urgent</SelectItem>
                 </SelectContent>
               </Select>
-
               <Select
                 value={sortBy}
                 onValueChange={(val: SortBy) => setSortBy(val)}
@@ -372,7 +350,6 @@ function RouteComponent() {
                   <SelectItem value="title">Title</SelectItem>
                 </SelectContent>
               </Select>
-
               <Select
                 value={sortOrder}
                 onValueChange={(val: SortOrder) => setSortOrder(val)}
@@ -387,8 +364,6 @@ function RouteComponent() {
               </Select>
             </div>
           </div>
-
-          {/* Add Todo Form */}
           <form
             onSubmit={(e) => {
               e.preventDefault();
@@ -398,7 +373,6 @@ function RouteComponent() {
             className="space-y-4 p-4 border rounded-lg bg-muted/50"
           >
             <h3 className="font-medium">Add New Todo</h3>
-
             <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
               <div className="space-y-2 md:col-span-2">
                 <Label htmlFor="title">Title *</Label>
@@ -414,7 +388,6 @@ function RouteComponent() {
                   )}
                 </form.Field>
               </div>
-
               <div className="space-y-2 md:col-span-2">
                 <Label htmlFor="description">Description</Label>
                 <form.Field name="description">
@@ -429,7 +402,6 @@ function RouteComponent() {
                   )}
                 </form.Field>
               </div>
-
               <div className="space-y-2">
                 <Label htmlFor="priority">Priority</Label>
                 <form.Field name="priority">
@@ -452,7 +424,6 @@ function RouteComponent() {
                   )}
                 </form.Field>
               </div>
-
               <div className="space-y-2">
                 <Label htmlFor="dueDate">Due Date</Label>
                 <form.Field name="dueDate">
@@ -468,20 +439,17 @@ function RouteComponent() {
                 </form.Field>
               </div>
             </div>
-
             <Button type="submit" disabled={isCreating} className="gap-2">
               <Plus className="h-4 w-4" />
               {isCreating ? "Adding..." : "Add Todo"}
             </Button>
           </form>
-
-          {/* Todos List */}
           <div className="space-y-2">
-            {todosLoading ? (
+            {todosQuery.isLoading ? (
               Array.from({ length: 3 }).map((_, i) => (
                 <Skeleton key={i} className="h-24 w-full" />
               ))
-            ) : !todos || todos.length === 0 ? (
+            ) : !todosQuery.data || todosQuery.data.length === 0 ? (
               <div className="text-center py-12">
                 <Circle className="h-12 w-12 mx-auto mb-4 text-muted-foreground/50" />
                 <p className="text-lg font-medium text-muted-foreground mb-2">
@@ -494,16 +462,13 @@ function RouteComponent() {
                 </p>
               </div>
             ) : (
-              todos.map((todo) => {
+              todosQuery.data.map((todo) => {
                 const dueDate = formatDueDate(todo.dueDate);
                 const isEditing = editingTodo === todo.id;
-
                 return (
                   <div
                     key={todo.id}
-                    className={`flex items-start gap-3 p-4 border rounded-lg transition-all hover:bg-accent/50 ${
-                      todo.completed ? "opacity-60" : ""
-                    }`}
+                    className={`flex items-start gap-3 p-4 border rounded-lg transition-all hover:bg-accent/50 ${todo.completed ? "opacity-60" : ""}`}
                   >
                     <Checkbox
                       id={`checkbox-${todo.id}`}
@@ -514,7 +479,6 @@ function RouteComponent() {
                       className="mt-1"
                       disabled={isUpdating}
                     />
-
                     {isEditing ? (
                       <div className="flex-1 space-y-3">
                         <EditTodoForm
@@ -530,11 +494,7 @@ function RouteComponent() {
                       <div className="flex-1 min-w-0">
                         <label
                           htmlFor={`checkbox-${todo.id}`}
-                          className={`block font-medium cursor-pointer ${
-                            todo.completed
-                              ? "line-through text-muted-foreground"
-                              : ""
-                          }`}
+                          className={`block font-medium cursor-pointer ${todo.completed ? "line-through text-muted-foreground" : ""}`}
                         >
                           {todo.title}
                         </label>
@@ -578,7 +538,6 @@ function RouteComponent() {
                         </div>
                       </div>
                     )}
-
                     <div className="flex gap-1 shrink-0">
                       {!isEditing && (
                         <Button
@@ -604,11 +563,10 @@ function RouteComponent() {
               })
             )}
           </div>
-
-          {/* Results count */}
-          {todos && todos.length > 0 && (
+          {todosQuery.data && todosQuery.data.length > 0 && (
             <p className="text-sm text-muted-foreground text-center">
-              Showing {todos.length} {todos.length === 1 ? "todo" : "todos"}
+              Showing {todosQuery.data.length}{" "}
+              {todosQuery.data.length === 1 ? "todo" : "todos"}
               {hasActiveFilters && " (filtered)"}
             </p>
           )}
@@ -618,7 +576,6 @@ function RouteComponent() {
   );
 }
 
-// Edit Todo Form Component
 function EditTodoForm({
   todo,
   onSave,
@@ -639,6 +596,7 @@ function EditTodoForm({
   const [description, setDescription] = useState(todo.description || "");
   const [priority, setPriority] = useState<Priority>(todo.priority);
   const [dueDate, setDueDate] = useState(
+    // Keep the input in the format it expects
     todo.dueDate ? new Date(todo.dueDate).toISOString().slice(0, 16) : ""
   );
 
@@ -648,11 +606,15 @@ function EditTodoForm({
       toast.error("Title cannot be empty");
       return;
     }
+
+    // ✅ FIX: Convert the local datetime string to a full ISO string before sending.
+    // If the dueDate string exists, create a Date object and convert it.
+    // Otherwise, send null.
     onSave({
       title: title.trim(),
       description: description.trim() || undefined,
       priority,
-      dueDate: dueDate || null,
+      dueDate: dueDate ? new Date(dueDate).toISOString() : null,
     });
   };
 
